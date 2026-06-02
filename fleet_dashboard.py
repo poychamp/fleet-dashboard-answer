@@ -229,7 +229,7 @@ def build_svg(devices):
         parts.append('<polygon points="%s" class="land"/>' % pts)
 
     # Plot points last so they sit on top of the land.
-    for d in devices:
+    for i, d in enumerate(devices):
         if not d.mappable:
             continue
         x, y = project(d.lon, d.lat)
@@ -240,9 +240,18 @@ def build_svg(devices):
         )
         flag = ' map-flag' if d.issues else ''
         parts.append(
-            '<circle cx="%s" cy="%s" r="7" fill="%s" class="dot%s">'
-            '<title>%s</title></circle>' % (x, y, d.status_colour, flag, esc(tip))
+            '<circle cx="%s" cy="%s" r="7" fill="%s" class="dot%s" data-row="dev-%d">'
+            '<title>%s</title></circle>' % (x, y, d.status_colour, flag, i, esc(tip))
         )
+    # A single reusable red "drop pin" (Google-Maps style); JS moves it onto the
+    # selected device's location when a table row is clicked. Tip sits at (0,0).
+    parts.append(
+        '<g id="map-pin" style="display:none" pointer-events="none">'
+        '<path d="M 0 0 C -7 -12 -14 -18 -14 -27 A 14 14 0 1 1 14 -27 C 14 -18 7 -12 0 0 Z" '
+        'fill="#ea4335" stroke="#ffffff" stroke-width="1.5"/>'
+        '<circle cx="0" cy="-27" r="5" fill="#ffffff"/>'
+        "</g>"
+    )
     parts.append("</svg>")
     return "\n".join(parts)
 
@@ -254,6 +263,15 @@ def build_legend():
                      % (colour, esc(label)))
     items.append('<span class="leg"><i style="background:%s"></i>%s</span>'
                  % (UNKNOWN_COLOUR, UNKNOWN_LABEL))
+    # Border legend: solid white border = clean row, dashed dark border = data issue.
+    sample = ('<svg width="22" height="22" class="leg-svg">'
+              '<rect width="22" height="22" rx="4" fill="#cbd5e1"/>'
+              '<circle cx="11" cy="11" r="6" fill="#64748b" stroke="%s" stroke-width="2"%s/>'
+              "</svg>")
+    items.append('<span class="leg leg-sep">%s Clean (no issues)</span>'
+                 % (sample % ("#ffffff", "")))
+    items.append('<span class="leg">%s Data issue</span>'
+                 % (sample % ("#0f172a", ' stroke-dasharray="2 2"')))
     return '<div class="legend">%s</div>' % "".join(items)
 
 
@@ -276,12 +294,17 @@ def build_summary(devices):
 
 def build_table(devices):
     rows = []
-    for d in devices:
+    for i, d in enumerate(devices):
         issue_text = "; ".join(d.issues)
         issue_cell = ('<span class="issue">%s</span>' % esc(issue_text)) if issue_text \
             else '<span class="ok">&#10003;</span>'
+        if d.mappable:
+            px, py = project(d.lon, d.lat)
+            coord_attr = " data-x='%s' data-y='%s'" % (px, py)
+        else:
+            coord_attr = ""
         rows.append(
-            "<tr>"
+            "<tr id='dev-%d'%s>"
             "<td class='mono'>%s</td>"
             "<td>%s</td>"
             "<td><span class='badge' style='background:%s'>%s</span></td>"
@@ -290,6 +313,7 @@ def build_table(devices):
             "<td>%s</td>"
             "<td>%s</td>"
             "</tr>" % (
+                i, coord_attr,
                 esc(d.device_id),
                 esc(d.name) if d.name else '<span class="muted">no name</span>',
                 d.status_colour, esc(d.status_label),
@@ -342,9 +366,10 @@ section h2 { margin: 0 0 16px; font-size: 15px; text-transform: uppercase;
 .map-wrap { display: flex; flex-direction: column; align-items: center; }
 .map { width: 100%; max-width: 760px; height: auto; background: #e2e8f0; border-radius: 10px; }
 .land { fill: #cbd5e1; stroke: #94a3b8; stroke-width: 1.2; }
-.dot { stroke: #fff; stroke-width: 2; }
+.dot { stroke: #fff; stroke-width: 2; cursor: pointer; }
 .dot.map-flag { stroke: #0f172a; stroke-dasharray: 2 2; }
-.zoom-controls { display: flex; gap: 8px; margin-bottom: 10px; align-self: flex-start; }
+.map-area { display: flex; flex-direction: column; width: 100%; max-width: 760px; }
+.zoom-controls { display: flex; gap: 8px; margin-top: 10px; align-self: flex-end; }
 .zoom-controls button { width: 36px; height: 32px; border: 1px solid #cbd5e1; background: #fff;
                         border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 700; color: #0f172a; }
 .zoom-controls button:hover { background: #f1f5f9; }
@@ -352,11 +377,15 @@ section h2 { margin: 0 0 16px; font-size: 15px; text-transform: uppercase;
 .legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 14px; font-size: 13px; }
 .leg { display: inline-flex; align-items: center; gap: 6px; color: #475569; }
 .leg i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.leg-svg { vertical-align: middle; }
+.leg-sep { border-left: 1px solid #e2e8f0; padding-left: 16px; }
 table.grid { width: 100%; border-collapse: collapse; font-size: 14px; }
 .grid th { text-align: left; padding: 10px; border-bottom: 2px solid #e2e8f0;
            color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
-.grid td { padding: 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+.grid td { padding: 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; transition: background .25s; }
 .grid tr:hover td { background: #f8fafc; }
+.grid tr.row-hl td { background: #fde68a; }
+.grid tbody tr { cursor: pointer; }
 .grid th:last-child, .grid td:last-child { width: 20%; word-break: break-word; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .badge { color: #fff; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
@@ -409,22 +438,69 @@ ZOOM_JS = ("""
   window.fleetReset = function () { vb = BASE.slice(); apply(); };
 
   // drag to pan
-  var dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
+  function highlightRow(row) {
+    var prev = document.querySelector('tr.row-hl');
+    if (prev) prev.classList.remove('row-hl');
+    if (row) row.classList.add('row-hl');
+  }
+  function showPin(x, y) {
+    var pin = document.getElementById('map-pin');
+    if (!pin) return;
+    pin.setAttribute('transform', 'translate(' + x + ',' + y + ')');
+    pin.style.display = '';
+  }
+  function hidePin() {
+    var pin = document.getElementById('map-pin');
+    if (pin) pin.style.display = 'none';
+  }
+
+  // drag to pan; remember which dot the press started on so a clean click
+  // (no drag) can be acted on in pointerup -- more reliable than the click
+  // event, which pointer-capture redirects to the <svg> itself.
+  var dragging = false, moved = false, sx = 0, sy = 0, ox = 0, oy = 0, downDot = null;
   svg.style.cursor = 'grab';
   svg.addEventListener('pointerdown', function (e) {
-    dragging = true; sx = e.clientX; sy = e.clientY; ox = vb[0]; oy = vb[1];
+    dragging = true; moved = false; sx = e.clientX; sy = e.clientY; ox = vb[0]; oy = vb[1];
+    downDot = e.target.closest('circle[data-row]');
     svg.style.cursor = 'grabbing'; svg.setPointerCapture(e.pointerId);
   });
   svg.addEventListener('pointermove', function (e) {
     if (!dragging) return;
+    if (Math.abs(e.clientX - sx) > 3 || Math.abs(e.clientY - sy) > 3) moved = true;
     var rect = svg.getBoundingClientRect();
     vb[0] = ox - (e.clientX - sx) * (vb[2] / rect.width);
     vb[1] = oy - (e.clientY - sy) * (vb[3] / rect.height);
     clamp(); apply();
   });
-  function end() { dragging = false; svg.style.cursor = 'grab'; }
-  svg.addEventListener('pointerup', end);
-  svg.addEventListener('pointercancel', end);
+  svg.addEventListener('pointerup', function () {
+    dragging = false; svg.style.cursor = 'grab';
+    if (!moved && downDot) {            // dot click -> pin the dot + jump to its row
+      showPin(downDot.getAttribute('cx'), downDot.getAttribute('cy'));
+      var row = document.getElementById(downDot.getAttribute('data-row'));
+      if (row) { highlightRow(row); row.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    }
+    downDot = null;
+  });
+  svg.addEventListener('pointercancel', function () {
+    dragging = false; svg.style.cursor = 'grab'; downDot = null;
+  });
+
+  // row click -> drop the red pin on that device's location and highlight the row
+  var grid = document.querySelector('table.grid');
+  if (grid) {
+    grid.addEventListener('click', function (e) {
+      var row = e.target.closest("tr[id^='dev-']");
+      if (!row) return;
+      highlightRow(row);
+      var x = row.getAttribute('data-x'), y = row.getAttribute('data-y');
+      if (x !== null && y !== null) {
+        showPin(x, y);
+        svg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else {
+        hidePin();   // device has no valid coordinates -> nothing to pin
+      }
+    });
+  }
 })();
 </script>
 """).replace("__W__", str(MAP_W)).replace("__H__", str(MAP_H))
@@ -441,13 +517,13 @@ def build_html(devices, now):
         "<title>Fleet Dashboard</title><style>%s</style></head><body>"
         "<header><h1>Fleet Dashboard</h1><p>%s</p></header><main>"
         "<section><h2>Summary</h2>%s</section>"
-        "<section><h2>Map</h2><div class='map-wrap'>%s%s%s</div></section>"
+        "<section><h2>Map</h2><div class='map-wrap'><div class='map-area'>%s%s</div>%s</div></section>"
         "<section><h2>Devices</h2>%s</section>"
         "<section><h2>Data issues</h2>%s</section>"
         "</main>%s</body></html>" % (
             CSS, subtitle,
             build_summary(devices),
-            ZOOM_CONTROLS, build_svg(devices), build_legend(),
+            build_svg(devices), ZOOM_CONTROLS, build_legend(),
             build_table(devices),
             build_issues(devices),
             ZOOM_JS,
