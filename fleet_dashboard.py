@@ -240,8 +240,8 @@ def build_svg(devices):
         )
         flag = ' map-flag' if d.issues else ''
         parts.append(
-            '<circle cx="%s" cy="%s" r="7" fill="%s" class="dot%s" data-row="dev-%d">'
-            '<title>%s</title></circle>' % (x, y, d.status_colour, flag, i, esc(tip))
+            '<circle id="dot-%d" cx="%s" cy="%s" r="7" fill="%s" class="dot%s" data-row="dev-%d">'
+            '<title>%s</title></circle>' % (i, x, y, d.status_colour, flag, i, esc(tip))
         )
     # A single reusable red "drop pin" (Google-Maps style); JS moves it onto the
     # selected device's location when a table row is clicked. Tip sits at (0,0).
@@ -368,6 +368,7 @@ section h2 { margin: 0 0 16px; font-size: 15px; text-transform: uppercase;
 .land { fill: #cbd5e1; stroke: #94a3b8; stroke-width: 1.2; }
 .dot { stroke: #fff; stroke-width: 2; cursor: pointer; }
 .dot.map-flag { stroke: #0f172a; stroke-dasharray: 2 2; }
+.dot.sel { stroke: #0f172a; stroke-width: 3; stroke-dasharray: none; }
 .map-area { display: flex; flex-direction: column; width: 100%; max-width: 760px; }
 .zoom-controls { display: flex; gap: 8px; margin-top: 10px; align-self: flex-end; }
 .zoom-controls button { width: 36px; height: 32px; border: 1px solid #cbd5e1; background: #fff;
@@ -453,6 +454,19 @@ ZOOM_JS = ("""
     var pin = document.getElementById('map-pin');
     if (pin) pin.style.display = 'none';
   }
+  // Enlarge the chosen circle and raise it above any overlapping ones so the
+  // selection is unambiguous even where several devices share a location.
+  var selDot = null;
+  function selectDot(id) {
+    if (selDot) { selDot.setAttribute('r', '7'); selDot.classList.remove('sel'); }
+    var dot = id ? document.getElementById(id) : null;
+    if (dot) {
+      dot.setAttribute('r', '11');
+      dot.classList.add('sel');
+      dot.parentNode.appendChild(dot);   // bring to front (renders last)
+    }
+    selDot = dot;
+  }
 
   // drag to pan; remember which dot the press started on so a clean click
   // (no drag) can be acted on in pointerup -- more reliable than the click
@@ -474,8 +488,9 @@ ZOOM_JS = ("""
   });
   svg.addEventListener('pointerup', function () {
     dragging = false; svg.style.cursor = 'grab';
-    if (!moved && downDot) {            // dot click -> pin the dot + jump to its row
+    if (!moved && downDot) {            // dot click -> pin + pop the dot + jump to its row
       showPin(downDot.getAttribute('cx'), downDot.getAttribute('cy'));
+      selectDot(downDot.id);
       var row = document.getElementById(downDot.getAttribute('data-row'));
       if (row) { highlightRow(row); row.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     }
@@ -495,9 +510,11 @@ ZOOM_JS = ("""
       var x = row.getAttribute('data-x'), y = row.getAttribute('data-y');
       if (x !== null && y !== null) {
         showPin(x, y);
+        selectDot('dot-' + row.id.slice(4));   // pop the exact circle for this row
         svg.scrollIntoView({ behavior: 'smooth', block: 'center' });
       } else {
-        hidePin();   // device has no valid coordinates -> nothing to pin
+        hidePin();        // device has no valid coordinates -> nothing to pin
+        selectDot(null);  // clear any previous selection
       }
     });
   }
